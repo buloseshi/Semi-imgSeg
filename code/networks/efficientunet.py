@@ -183,7 +183,7 @@ class Effi_UNet(nn.Module):
             encoder_weights: str = "imagenet",
             decoder_use_batchnorm=True,
             decoder_channels=(256, 128, 64, 32, 16),
-            decoder_attention_type=None,
+            decoder_attention_type='scse',
             in_channels: int = 3,
             classes: int = 1):
         super().__init__()
@@ -215,7 +215,13 @@ class Effi_UNet(nn.Module):
         return output
 
 
-# unet = UNet('efficientnet-b3', encoder_weights='imagenet', in_channels=1, classes=1, decoder_attention_type="scse")
+if __name__ =='__main__':
+    model = Effi_UNet(encoder_name='efficientnet-b3')
+    img = torch.randn(3,3,256,256)
+    out = model(img)
+    print(out.size())
+
+    # unet = UNet('efficientnet-b3', encoder_weights='imagenet', in_channels=1, classes=1, decoder_attention_type="scse")
 # t = torch.rand(2, 1, 224, 224)
 # print(unet)
 # print(unet(t).shape)

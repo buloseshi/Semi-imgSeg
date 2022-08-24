@@ -243,3 +243,12 @@ def translate_x(x, delta):
 def translate_y(x, delta):
     delta = (2 * delta - 1) * 0.3
     return x.transform(x.size, Image.AFFINE, (1, 0, 0, 0, 1, delta))
+
+
+if __name__ == '__main__':
+    aug = CTAugment()
+    img = torch.randn(1,3,512,512)
+    label = torch.randn(1,1,128,128)
+    data = [img,label]
+    aug(data)
+    print(data.shape())

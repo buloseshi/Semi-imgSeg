@@ -12,6 +12,7 @@ import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import torchvision.transforms
 from tensorboardX import SummaryWriter
 from torch.nn import BCEWithLogitsLoss
 from torch.nn.modules.loss import CrossEntropyLoss
@@ -19,10 +20,11 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.utils import make_grid
 from tqdm import tqdm
-
+# from augmentations import auto_augment
+# from augmentations import ctaugment
 from dataloaders import utils
 from dataloaders.dataset import (BaseDataSets, RandomGenerator,
-                                 TwoStreamBatchSampler)
+                                 TwoStreamBatchSampler,CTATransform)
 from networks.net_factory import net_factory
 from utils import losses, metrics, ramps
 from val_2D import test_single_volume
@@ -33,10 +35,12 @@ parser.add_argument('--root_path', type=str,
 parser.add_argument('--exp', type=str,
                     default='ACDC/Cross_Pseudo_Supervision', help='experiment_name')
 parser.add_argument('--model', type=str,
-                    default='unet', help='model_name')
+                    default='efficient_unet', help='model_name')
+parser.add_argument('--model2', type=str,
+                    default='efficient_unet', help='model_name')
 parser.add_argument('--max_iterations', type=int,
                     default=30000, help='maximum epoch number to train')
-parser.add_argument('--batch_size', type=int, default=24,
+parser.add_argument('--batch_size', type=int, default=6,
                     help='batch_size per gpu')
 parser.add_argument('--deterministic', type=int,  default=1,
                     help='whether use deterministic training')
@@ -49,9 +53,9 @@ parser.add_argument('--num_classes', type=int,  default=4,
                     help='output channel of network')
 
 # label and unlabel
-parser.add_argument('--labeled_bs', type=int, default=12,
+parser.add_argument('--labeled_bs', type=int, default=4,
                     help='labeled_batch_size per gpu')
-parser.add_argument('--labeled_num', type=int, default=136,
+parser.add_argument('--labeled_num', type=int, default=7,
                     help='labeled data')
 # costs
 parser.add_argument('--ema_decay', type=float,  default=0.99, help='ema_decay')
@@ -120,17 +124,38 @@ def train(args, snapshot_path):
             for param in model.parameters():
                 param.detach_()
         return model
-
+    def create_model2(ema=False):
+        # Network definition
+        model = net_factory(net_type=args.model2, in_chns=1,
+                            class_num=num_classes)
+        if ema:
+            for param in model.parameters():
+                param.detach_()
+        return model
+    name = args.model2
     model1 = create_model()
-    model2 = create_model()
+    model2 = create_model2()
     
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
 
+    # db_train = BaseDataSets(base_dir=args.root_path, split="train", num=None, transform=transforms.Compose([
+    #     CTATransform(args.patch_size,cta=None)
+    # ]),ops_weak='cutout',ops_strong='cutout')
     db_train = BaseDataSets(base_dir=args.root_path, split="train", num=None, transform=transforms.Compose([
         RandomGenerator(args.patch_size)
     ]))
     db_val = BaseDataSets(base_dir=args.root_path, split="val")
+    # db_val1 = BaseDataSets(base_dir=args.root_path, split="val",transform=transforms.Compose([
+    #     transforms.Resize(224)
+    # ]))
+    #
+    # transform = transforms.Compose([
+    #     transforms.Resize(96),  # 缩放到 96 * 96 大小
+    #     transforms.ToTensor(),
+    #     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # 归一化
+    # ])
+
 
     total_slices = len(db_train)
     labeled_slice = patients_to_slices(args.root_path, args.labeled_num)
@@ -142,13 +167,17 @@ def train(args, snapshot_path):
         labeled_idxs, unlabeled_idxs, batch_size, batch_size-args.labeled_bs)
 
     trainloader = DataLoader(db_train, batch_sampler=batch_sampler,
-                             num_workers=4, pin_memory=True, worker_init_fn=worker_init_fn)
+                             num_workers=0, pin_memory=True, worker_init_fn=worker_init_fn)
+    # trainloader1 = DataLoader(db_train1, batch_sampler=batch_sampler,
+    #                          num_workers=0, pin_memory=True, worker_init_fn=worker_init_fn)
 
     model1.train()
     model2.train()
 
     valloader = DataLoader(db_val, batch_size=1, shuffle=False,
                            num_workers=1)
+    # valloader1 = DataLoader(db_val1, batch_size=1, shuffle=False,
+    #                        num_workers=1)
 
     optimizer1 = optim.SGD(model1.parameters(), lr=base_lr,
                           momentum=0.9, weight_decay=0.0001)
@@ -169,11 +198,17 @@ def train(args, snapshot_path):
         for i_batch, sampled_batch in enumerate(trainloader):
 
             volume_batch, label_batch = sampled_batch['image'], sampled_batch['label']
-            volume_batch, label_batch = volume_batch.cuda(), label_batch.cuda()
+            volume_batch, label_batch = volume_batch, label_batch
 
+            resize = torchvision.transforms.Resize([224,224])
+            resize2 = torchvision.transforms.Resize([256,256])
+            volume_batch1 = resize(volume_batch)
             outputs1  = model1(volume_batch)
+            # outputs1 = resize2(outputs1)
             outputs_soft1 = torch.softmax(outputs1, dim=1)
+            outputs_soft1 = resize2(outputs_soft1)
 
+            # volume_batch2 = torch.unsqueeze(volume_batch,dim=0)
             outputs2 = model2(volume_batch)
             outputs_soft2 = torch.softmax(outputs2, dim=1)
             consistency_weight = get_current_consistency_weight(iter_num // 150)
@@ -328,6 +363,8 @@ def train(args, snapshot_path):
 
 
 if __name__ == "__main__":
+    # import os
+    # os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
     if not args.deterministic:
         cudnn.benchmark = True
         cudnn.deterministic = False

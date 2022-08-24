@@ -802,3 +802,10 @@ class SwinTransformerSys(nn.Module):
             self.patches_resolution[1] // (2 ** self.num_layers)
         flops += self.num_features * self.num_classes
         return flops
+
+if __name__ == '__main__':
+    model = SwinTransformerSys()
+    img = torch.randn(3,3,224,224)
+    out = model(img).detach().numpy()
+    print(out)
+

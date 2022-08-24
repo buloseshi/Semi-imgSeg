@@ -35,6 +35,22 @@ def calculate_metric_percase(pred, gt):
     asd = metric.binary.asd(pred, gt)
     hd95 = metric.binary.hd95(pred, gt)
     return dice, hd95, asd
+def calculate_iou(output, target):
+    # pred[pred>0] = 1
+    # gt[gt>0] = 1
+    # iou =
+    smooth = 1e-5
+
+    if torch.is_tensor(output):
+        output = torch.sigmoid(output).data.cpu().numpy()
+    if torch.is_tensor(target):
+        target = target.data.cpu().numpy()
+    output_ = output > 0.5
+    target_ = target > 0.5
+    intersection = (output_ & target_).sum()
+    union = (output_ | target_).sum()
+
+    return (intersection+smooth)/(union+smooth)
 
 
 def test_single_volume(case, net, test_save_path, FLAGS):

@@ -134,3 +134,10 @@ class MultiAttentionBlock(nn.Module):
         gate_2, attention_2 = self.gate_block_2(input, gating_signal)
 
         return self.combine_gates(torch.cat([gate_1, gate_2], 1)), torch.cat([attention_1, attention_2], 1)
+
+
+if __name__ == '__main__':
+    model = Attention_UNet()
+    model.eval()
+    img = torch.randn(64, 3, 3,3,3)
+    output = model(img)
